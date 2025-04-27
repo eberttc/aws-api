@@ -4,6 +4,7 @@
 (ns ^:skip-wiki cognitect.aws.client.impl
   "Impl, don't call directly."
   (:require [clojure.core.async :as a]
+            [clojure.tools.logging :refer [debug error]]
             [cognitect.aws.client.protocol :as client.protocol]
             [cognitect.aws.client.shared :as shared]
             [cognitect.aws.client.validation :as validation]
@@ -72,10 +73,12 @@
         creds-ch      (credentials/fetch-async credentials-provider)
         response-ch   (a/chan 1)
         result-ch     (a/promise-chan)]
+    (debug "Init send-request")
     (a/go
       (let [region   (a/<! region-ch)
             creds    (a/<! creds-ch)
             endpoint (endpoint/fetch endpoint-provider region)]
+        (debug "send-request " region creds endpoint)
         (cond
           (:cognitect.anomalies/category region)
           (a/>! result-ch region)
@@ -92,16 +95,22 @@
                                     (with-endpoint endpoint)
                                     ((partial interceptors/modify-http-request service op-map))))]
               (swap! response-meta assoc :http-request http-request)
-              (http/submit http-client http-request response-ch))
+              (debug "before submit")
+              (let [r (http/submit http-client http-request response-ch)]
+                (debug "after submit" r)
+                r))
             (catch Throwable t
               (put-throwable result-ch t response-meta op-map))))))
     (a/go
       (try
-        (let [response (a/<! response-ch)]
-          (a/>! result-ch (with-meta
-                            (handle-http-response service op-map response)
-                            (swap! response-meta assoc
-                                   :http-response (update response :body util/bbuf->input-stream)))))
+        (let [response (a/<! response-ch)
+              _ (debug "handle-http-response" response)
+              r-1 (a/>! result-ch (with-meta
+                                (handle-http-response service op-map response)
+                                (swap! response-meta assoc
+                                       :http-response (update response :body util/bbuf->input-stream))))
+              _ (debug "after handle-http-response" r-1)]
+          r-1)
         (catch Throwable t
           (put-throwable result-ch t response-meta op-map))))
     result-ch))
