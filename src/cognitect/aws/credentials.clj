@@ -94,6 +94,7 @@
      (reify
        CredentialsProvider
        (fetch [_]
+         (log/debug "init cached-credentials-with-auto-refresh")
          (or @credentials-atom
              (refresh! credentials-atom scheduled-refresh-atom provider scheduler)))
        Stoppable
@@ -121,6 +122,7 @@
    (valid-credentials credentials nil))
   ([{:keys [aws/access-key-id aws/secret-access-key] :as credentials}
     credential-source]
+   (log/debug "init valid-credentials")
    (if (and (not (str/blank? access-key-id))
             (not (str/blank? secret-access-key)))
      (do
@@ -149,6 +151,7 @@
     (reify
       CredentialsProvider
       (fetch [_]
+        (log/debug "init chain-credentials-provider")
         (valid-credentials
          (if @cached-provider
            (fetch @cached-provider)
@@ -178,11 +181,14 @@
   (cached-credentials-with-auto-refresh
    (reify CredentialsProvider
      (fetch [_]
-       (valid-credentials
-        {:aws/access-key-id     (u/getenv "AWS_ACCESS_KEY_ID")
-         :aws/secret-access-key (u/getenv "AWS_SECRET_ACCESS_KEY")
-         :aws/session-token     (u/getenv "AWS_SESSION_TOKEN")}
-        "environment variables")))))
+       (log/debug "init environment-credentials-provider")
+       (let [rp (valid-credentials
+                  {:aws/access-key-id     (u/getenv "AWS_ACCESS_KEY_ID")
+                   :aws/secret-access-key (u/getenv "AWS_SECRET_ACCESS_KEY")
+                   :aws/session-token     (u/getenv "AWS_SESSION_TOKEN")}
+                  "environment variables")]
+         (log/debug "end environment-credentials-provider")
+         rp)))))
 
 (defn system-property-credentials-provider
   "Return the credentials from the system properties.
@@ -354,6 +360,7 @@
 
   Alpha. Subject to change."
   [http-client]
+  (log/debug "init default-credentials-provider")
   (chain-credentials-provider
    [(environment-credentials-provider)
     (system-property-credentials-provider)

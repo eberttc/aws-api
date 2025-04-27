@@ -64,44 +64,60 @@
 
   Alpha. Subject to change."
   [{:keys [api region region-provider retriable? backoff credentials-provider endpoint-override http-client]
-    :or   {endpoint-override {}}}]
+    :or   {endpoint-override {}} :as cconfig}]
+  (log/debug "in client" cconfig)
   (when (string? endpoint-override)
     (log/warn
      (format
       "DEPRECATION NOTICE: :endpoint-override string is deprecated.\nUse {:endpoint-override {:hostname \"%s\"}} instead."
       endpoint-override)))
-  (let [service              (service/service-description (name api))
+  (let [_   (log/debug "before service-description")
+        service              (service/service-description (name api))
+        _   (log/debug "after service-description")
+        _   (log/debug "before resolve-http-client")
         http-client          (if http-client
                                (http/resolve-http-client http-client)
                                (shared/http-client))
+        _   (log/debug "after resolve-http-client")
+        _   (log/debug "before region-provider")
         region-provider      (cond region          (reify region/RegionProvider (fetch [_] region))
                                    region-provider region-provider
                                    :else           (shared/region-provider))
+        _   (log/debug "after region-provider")
+        _   (log/debug "before credentials-provider")
         credentials-provider (or credentials-provider (shared/credentials-provider))
+        _   (log/debug "after credentials-provider")
+        _   (log/debug "before endpoint-provider")
         endpoint-provider    (endpoint/default-endpoint-provider
                               (get-in service [:metadata :endpointPrefix])
-                              endpoint-override)]
+                              endpoint-override)
+        _   (log/debug "after endpoint-provider")]
+       (log/debug "before ynaload/load-ns")
     (dynaload/load-ns (symbol (str "cognitect.aws.protocols." (get-in service [:metadata :protocol]))))
-    (client/->Client
-     (atom {'clojure.core.protocols/datafy (fn [c]
-                                             (let [info (client.protocol/-get-info c)
-                                                   region (region/fetch (:region-provider info))
-                                                   endpoint (endpoint/fetch (:endpoint-provider info) region)]
-                                               (-> info
-                                                   (select-keys [:service])
-                                                   (assoc :api (-> info :service :metadata :cognitect.aws/service-name))
-                                                   (assoc :region region :endpoint endpoint)
-                                                   (update :endpoint select-keys [:hostname :protocols :signatureVersions])
-                                                   (update :service select-keys [:metadata])
-                                                   (assoc :ops (ops c)))))})
-     {:service              service
-      :retriable?           (or retriable? retry/default-retriable?)
-      :backoff              (or backoff retry/default-backoff)
-      :http-client          http-client
-      :endpoint-provider    endpoint-provider
-      :region-provider      region-provider
-      :credentials-provider credentials-provider
-      :validate-requests?   (atom nil)})))
+      (log/debug "after dynaload/load-ns")
+      (log/debug "before client/->Client")
+    (let [r12 (client/->Client
+                (atom {'clojure.core.protocols/datafy (fn [c]
+                                                        (let [info (client.protocol/-get-info c)
+                                                              region (region/fetch (:region-provider info))
+                                                              endpoint (endpoint/fetch (:endpoint-provider info) region)]
+                                                          (-> info
+                                                              (select-keys [:service])
+                                                              (assoc :api (-> info :service :metadata :cognitect.aws/service-name))
+                                                              (assoc :region region :endpoint endpoint)
+                                                              (update :endpoint select-keys [:hostname :protocols :signatureVersions])
+                                                              (update :service select-keys [:metadata])
+                                                              (assoc :ops (ops c)))))})
+                {:service              service
+                 :retriable?           (or retriable? retry/default-retriable?)
+                 :backoff              (or backoff retry/default-backoff)
+                 :http-client          http-client
+                 :endpoint-provider    endpoint-provider
+                 :region-provider      region-provider
+                 :credentials-provider credentials-provider
+                 :validate-requests?   (atom nil)})
+          _       (log/debug "after client/->Client")]
+      r12)))
 
 (defn default-http-client
   "Returns a new instance of the default type of http client. This function may be used to create a
