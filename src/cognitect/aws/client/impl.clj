@@ -66,14 +66,20 @@
 
 (defn ^:private send-request
   [client op-map http-request]
-  (let [{:keys [service http-client region-provider credentials-provider endpoint-provider]}
+  (debug "Init send-request")
+  (let [    _ (debug "before client.protocol/-get-info client")
+        {:keys [service http-client region-provider credentials-provider endpoint-provider]}
         (client.protocol/-get-info client)
+        _ (debug "after client.protocol/-get-info client")
         response-meta (atom {})
+        _ (debug "before region lookup")
         region-ch     (region/fetch-async region-provider)
+        _ (debug "after region lookup")
+        _ (debug "before cred lookup")
         creds-ch      (credentials/fetch-async credentials-provider)
+        _ (debug "after region lookup")
         response-ch   (a/chan 1)
         result-ch     (a/promise-chan)]
-    (debug "Init send-request")
     (a/go
       (let [region   (a/<! region-ch)
             creds    (a/<! creds-ch)
@@ -125,20 +131,23 @@
     (.valAt this k nil))
 
   (valAt [this k default]
-    (case k
-      :api
-      (-> info :service :metadata :cognitect.aws/service-name)
-      :region
-      (some-> info :region-provider region/fetch)
-      :endpoint
-      (some-> info :endpoint-provider (endpoint/fetch (.valAt this :region)))
-      :credentials
-      (some-> info :credentials-provider credentials/fetch)
-      :service
-      (some-> info :service (select-keys [:metadata]))
-      :http-client
-      (:http-client info)
-      default))
+    (debug "before ILookup" k)
+    (let [r2 (case k
+               :api
+               (-> info :service :metadata :cognitect.aws/service-name)
+               :region
+               (some-> info :region-provider region/fetch)
+               :endpoint
+               (some-> info :endpoint-provider (endpoint/fetch (.valAt this :region)))
+               :credentials
+               (some-> info :credentials-provider credentials/fetch)
+               :service
+               (some-> info :service (select-keys [:metadata]))
+               :http-client
+               (:http-client info)
+               default)]
+      (debug "after ILookup" k)
+      r2))
 
   client.protocol/Client
   (-get-info [_] info)
@@ -147,9 +156,12 @@
     (a/<!! (.-invoke-async client op-map)))
 
   (-invoke-async [client {:keys [op request] :as op-map}]
+    (debug "In -invoke-async" op-map)
     (let [result-chan (or (:ch op-map) (a/promise-chan))
           {:keys [service retriable? backoff]} (client.protocol/-get-info client)
-          spec (and (validation/validate-requests? client) (validation/request-spec service op))]
+          _   (debug "before validate request")
+          spec (and (validation/validate-requests? client) (validation/request-spec service op))
+          _   (debug "after validate request" spec)]
       (cond
         (not (contains? (:operations service) (:op op-map)))
         (a/put! result-chan (validation/unsupported-op-anomaly service op))
